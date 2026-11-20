@@ -1,0 +1,6 @@
+Initial release of Tawwab — a free Islamic companion app.
+• Prayer times with location-based calculation
+• Full Quran (114 surahs, Uthmani text)
+• Global Tasbeeh counter with ranking
+• Azkar from Hisn al-Muslim
+• Repentance (Dhambi) companion

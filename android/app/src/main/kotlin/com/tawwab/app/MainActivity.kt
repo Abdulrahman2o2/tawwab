@@ -1,4 +1,4 @@
-package com.tawwab.tawwab
+package com.tawwab.app
 
 import io.flutter.embedding.android.FlutterActivity
 

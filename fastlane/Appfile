@@ -1,0 +1,4 @@
+app_identifier("com.tawwab.app")
+apple_id("your_apple_id@example.com")
+team_id("YOUR_TEAM_ID")
+itc_team_id("YOUR_TEAM_ID")

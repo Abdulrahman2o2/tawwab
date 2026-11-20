@@ -1,53 +1,66 @@
 # Codemagic CI/CD configuration for Tawwab (تَوَّاب)
 # iOS workflow: build + sign + upload to TestFlight (App Store Connect API)
-# Android workflow: build release APK/AAB for Google Play
+# Android workflow: build release AAB for Google Play
+#
+# PREREQUISITES (owner must do once):
+# 1. Enroll in Apple Developer Program ($99/yr) → developer.apple.com
+# 2. Create an App Store Connect API key (Admin role) → App Store Connect → Users and Access → Keys
+#    Save the .p8 file, Key ID, and Issuer ID
+# 3. Sign up at codemagic.io (use GitHub login)
+# 4. Add the GitHub repo "Abdulrahman2o2/tawwab" as a new app in Codemagic
+# 5. Set these environment variables in Codemagic → App settings → Environment variables:
+#    - APP_STORE_CONNECT_PRIVATE_KEY  (contents of the .p8 file)
+#    - APP_STORE_CONNECT_KEY_IDENTIFIER  (Key ID from step 2)
+#    - APP_STORE_CONNECT_ISSUER_ID  (Issuer ID from step 2)
+#    - IOS_TEAM_ID  (your Apple Developer Team ID, found in Membership page)
+# 6. Replace YOUR_TEAM_ID in ios/ExportOptions.plist and ios/Runner.xcodeproj/project.pbxproj
 
 definitions:
-  scripts: &ios_signing_setup
-    name: Set up iOS code signing via App Store Connect API key
-    script: |
-      # App Store Connect API key (base64-encoded .p8 file) stored in Codemagic as IOS_ASC_KEY
-      # Team ID and Key ID stored as IOS_ASC_KEY_ID and IOS_TEAM_ID
-      echo $IOS_ASC_KEY | base64 --decode > /tmp/asc_key.p8
-      mkdir -p ~/.private_keys
-      cp /tmp/asc_key.p8 ~/.private_keys/AuthKey_$IOS_ASC_KEY_ID.p8
+  scripts:
+    - &setup_ios_signing
+      name: Set up iOS code signing via App Store Connect API key
+      script: |
+        echo "$APP_STORE_CONNECT_PRIVATE_KEY" > /tmp/private_key.p8
+        mkdir -p "$HOME/.private_keys"
+        cp /tmp/private_key.p8 "$HOME/.private_keys/AuthKey_$APP_STORE_CONNECT_KEY_IDENTIFIER.p8"
+
 workflows:
   ios-release:
-    name: Tawwab iOS Release (TestFlight)
+    name: Tawwab iOS → TestFlight
     max_build_duration: 60
     instance_type: mac_mini_m2
+    environment:
+      groups:
+        - app_store_credentials
+      vars:
+        IOS_TEAM_ID: $IOS_TEAM_ID
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.tawwab.app
+      flutter: stable
+      xcode: latest
+      cocoapods: default
     triggering:
       events:
         - push
       branch_patterns:
         - pattern: main
           include: true
-    environment:
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.tawwab.app
-      vars:
-        IOS_ASC_KEY_ID: $IOS_ASC_KEY_ID
-        IOS_TEAM_ID: $IOS_TEAM_ID
-      flutter: stable
-      xcode: latest
-      cocoapods: default
     scripts:
-      - *ios_signing_setup
+      - *setup_ios_signing
       - name: Get Flutter packages
         script: |
-          flutter packages pub get
+          flutter pub get
       - name: Install pods
         script: |
           cd ios && pod install
-      - name: Flutter build ipa
+      - name: Build IPA
         script: |
           flutter build ipa --release \
             --export-options-plist=ios/ExportOptions.plist
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
-      - flutter_drive.log
     publishing:
       email:
         recipients:
@@ -58,37 +71,35 @@ workflows:
         issuer_id: $APP_STORE_CONNECT_ISSUER_ID
         submit: false
         release_type: TESTFLIGHT
-        # TestFlight: build uploaded to App Store Connect -> TestFlight tab
+        # What happens: Codemagic builds the IPA → signs it with your
+        # App Store Connect API key → uploads to App Store Connect →
+        # the build appears in TestFlight within 10-30 minutes
 
   android-release:
-    name: Tawwab Android Release
+    name: Tawwab Android → Play Store
     max_build_duration: 60
     instance_type: linux_x2
-    triggering:
-      events:
-        - push
-      branch_patterns:
-        - pattern: main
-          include: true
     environment:
-      android_signing:
-        - keystore: keystore.jks
-          alias: tawwab
       vars:
         FCI_KEYSTORE: $FCI_KEYSTORE
         FCI_KEYSTORE_PASSWORD: $FCI_KEYSTORE_PASSWORD
         FCI_KEY_PASSWORD: $FCI_KEY_PASSWORD
         FCI_KEY_ALIAS: $FCI_KEY_ALIAS
       flutter: stable
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
     scripts:
       - name: Get Flutter packages
         script: |
-          flutter packages pub get
-      - name: Build Android AAB (Play Store)
+          flutter pub get
+      - name: Build AAB
         script: |
-          # decode keystore from environment variable (base64)
-          echo $FCI_KEYSTORE | base64 --decode > android/app/keystore.jks
-          # create key.properties
+          # decode keystore from base64 env var
+          echo "$FCI_KEYSTORE" | base64 --decode > android/app/keystore.jks
           cat > android/key.properties <<EOF
           storeFile=keystore.jks
           storePassword=$FCI_KEYSTORE_PASSWORD
@@ -98,7 +109,6 @@ workflows:
           flutter build appbundle --release
     artifacts:
       - build/**/outputs/**/*.aab
-      - build/**/outputs/**/*.apk
     publishing:
       google_play:
         credentials: $GCLOUD_SERVICE_ACCOUNT_CREDENTIALS
